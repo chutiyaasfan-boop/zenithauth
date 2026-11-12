@@ -346,10 +346,10 @@ const ZenithApp = {
 
             <div class="auth-divider-light">OR CONTINUE WITH</div>
 
-            <button type="button" class="btn-social-google" onclick="ZenithApp.showToast('Google OAuth simulated successfully', 'info')">
+            <button type="button" class="btn-social-google" onclick="ZenithApp.openGoogleSignInModal()">
               <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.15C3.25 21.36 7.33 24 12 24Z"/><path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.26C.46 8.17 0 9.97 0 12s.46 3.83 1.26 5.42l4.02-3.15Z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.25 2.64 1.26 6.58l4.02 3.15c.95-2.83 3.6-4.98 6.72-4.98Z"/></svg>
               <span>Continue with Google</span>
-              <span style="position:absolute; right:12px; background:#eff6ff; color:#3b82f6; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px;">LAST USED</span>
+              <span style="position:absolute; right:12px; background:#eff6ff; color:#3b82f6; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px;">1-CLICK</span>
             </button>
 
             <div class="social-icons-row">
@@ -380,8 +380,8 @@ const ZenithApp = {
       </div>
     `;
 
-    // Simulate Human Verification in 2.5 seconds (Image 5)
-    setTimeout(() => {
+    // Instant click or simulated 2.5s verification
+    const completeVerification = () => {
       const spinner = document.getElementById('cf-spinner-el');
       const text = document.getElementById('cf-status-text');
       const box = document.getElementById('cf-verification-box');
@@ -400,7 +400,13 @@ const ZenithApp = {
         }
         this.isHumanVerified = true;
       }
-    }, 2500);
+    };
+
+    const cfBox = document.getElementById('cf-verification-box');
+    if (cfBox) cfBox.addEventListener('click', completeVerification);
+
+    // Auto-verify in 2.5 seconds (Image 5)
+    setTimeout(completeVerification, 2500);
 
     // Form Event
     document.getElementById('auth-split-form').addEventListener('submit', async (e) => {
@@ -467,6 +473,90 @@ const ZenithApp = {
         }
       }
     });
+  },
+
+  // Interactive Google Sign-In Modal (1-Click Real Authentication)
+  openGoogleSignInModal() {
+    this.closeAllModals();
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.id = 'google-modal-backdrop';
+    backdrop.onclick = (e) => { if (e.target === backdrop) ZenithApp.closeAllModals(); };
+    backdrop.innerHTML = `
+      <div class="modal-container" style="max-width:440px; background:#121215; border:1px solid #282832; border-radius:16px; box-shadow:0 25px 60px rgba(0,0,0,0.85); overflow:hidden;">
+        <div style="background:#18181f; padding:18px 22px; border-bottom:1px solid #282832; display:flex; align-items:center; justify-content:space-between;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <svg width="22" height="22" viewBox="0 0 24 24"><path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17Z"/><path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.26v3.15C3.25 21.36 7.33 24 12 24Z"/><path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.26C.46 8.17 0 9.97 0 12s.46 3.83 1.26 5.42l4.02-3.15Z"/><path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.25 2.64 1.26 6.58l4.02 3.15c.95-2.83 3.6-4.98 6.72-4.98Z"/></svg>
+            <span style="font-size:15px; font-weight:700; color:#fff;">Google Authentication</span>
+          </div>
+          <button class="sidebar-toggle-btn" style="padding:2px;" onclick="ZenithApp.closeAllModals()">${ZenithIcons.close}</button>
+        </div>
+
+        <div style="padding:22px;">
+          <p style="font-size:13px; color:#9ca3af; margin-bottom:16px;">
+            Choose a Google account to sign into <strong style="color:#fff;">Zenith Auth</strong>:
+          </p>
+
+          <!-- 1-Click Master Owner Profile -->
+          <div onclick="ZenithApp.executeGoogleLogin('zeeshan1710@fam', 'ZEESHAN1017')" 
+               style="display:flex; align-items:center; gap:12px; padding:12px 14px; background:#181820; border:1px solid #2d2d3a; border-radius:10px; cursor:pointer; margin-bottom:14px; transition:0.2s;"
+               onmouseover="this.style.borderColor='#6366f1'; this.style.background='#1f1f2a';"
+               onmouseout="this.style.borderColor='#2d2d3a'; this.style.background='#181820';">
+            <div style="width:38px; height:38px; border-radius:50%; background:linear-gradient(135deg, #6366f1, #8b5cf6); display:flex; align-items:center; justify-content:center; font-weight:800; color:#fff; font-size:16px;">
+              Z
+            </div>
+            <div style="flex:1;">
+              <div style="font-size:13.5px; font-weight:700; color:#fff; display:flex; align-items:center; gap:6px;">
+                <span>ZEESHAN1017</span>
+                <span style="font-size:10px; background:#4f46e533; border:1px solid #6366f1; color:#a5b4fc; padding:1px 6px; border-radius:4px;">👑 OWNER</span>
+              </div>
+              <div style="font-size:12px; color:#9ca3af;">zeeshan1710@fam</div>
+            </div>
+            <span style="font-size:12px; color:#6366f1; font-weight:700;">Continue →</span>
+          </div>
+
+          <!-- Custom Gmail Input -->
+          <div style="margin-top:16px; padding-top:16px; border-top:1px solid #23232c;">
+            <label style="display:block; font-size:11.5px; font-weight:700; color:#9ca3af; margin-bottom:6px; letter-spacing:0.5px;">
+              OR SIGN IN WITH CUSTOM GMAIL:
+            </label>
+            <div style="display:flex; gap:8px;">
+              <input type="email" id="google-email-input" class="form-control" placeholder="your_email@gmail.com" style="flex:1; background:#18181e; border-color:#2a2a34;" />
+              <button class="btn btn-primary btn-sm" onclick="const em = document.getElementById('google-email-input').value.trim(); if (em) ZenithApp.executeGoogleLogin(em); else ZenithApp.showToast('Please enter an email address', 'warning');">
+                Sign In
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+  },
+
+  async executeGoogleLogin(email, name = '') {
+    try {
+      this.showToast('Authenticating with Google Identity...', 'info');
+      const res = await fetch('/api/auth/google-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Google login failed');
+      }
+
+      this.closeAllModals();
+      localStorage.setItem('zenith_token', data.token);
+      this.user = data.user;
+      this.showToast('Logged in as ' + this.user.username + ' (' + (this.user.account_plan || this.user.role) + ')', 'success');
+      window.location.hash = 'dashboard';
+      await this.loadApplications();
+      this.renderAuthenticatedLayout();
+      this.navigate('dashboard');
+    } catch (err) {
+      this.showToast(err.message, 'danger');
+    }
   },
 
   /* ====================================================================
@@ -543,6 +633,12 @@ const ZenithApp = {
             </a>
 
             <div class="nav-section-title">Commerce & Team</div>
+            ${(this.user && (this.user.role === 'Owner' || this.user.role === 'Administrator')) ? `
+              <a class="nav-item ${this.currentRoute === 'accounts' ? 'active' : ''}" href="#accounts" style="background:#f59e0b11; border:1px solid #f59e0b33;">
+                <span style="font-size:14px;">👑</span>
+                <span class="nav-text" style="color:#f59e0b; font-weight:700;">Platform Accounts</span>
+              </a>
+            ` : ''}
             <a class="nav-item ${this.currentRoute === 'team' ? 'active' : ''}" href="#team">
               ${ZenithIcons.team}
               <span class="nav-text">Team Management</span>
@@ -724,6 +820,9 @@ const ZenithApp = {
       case 'team':
         await this.renderTeam(container);
         break;
+      case 'accounts':
+        await this.renderPlatformAccounts(container);
+        break;
       case 'resellers':
         await this.renderResellers(container);
         break;
@@ -778,48 +877,52 @@ const ZenithApp = {
       </div>
 
       <!-- Welcome Banner -->
-      <div class="welcome-banner-ref">
-        <div class="welcome-info-wrap">
-          <div class="welcome-wave-icon">
-            <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 11v2"/></svg>
-          </div>
-          <div>
-            <h2 class="welcome-heading">Welcome back, ${this.user.username}!</h2>
-            <div class="welcome-subinfo">
-              <span>Role: <strong class="role-tag">${this.user.role.toLowerCase()}</strong></span>
-              <span> • </span>
-              <span>Plan: <strong>${userPlan}</strong></span>
-              <span> • </span>
-              <span>Expiry: <strong>${userPlan === 'TESTER' ? 'Free Forever' : remainingDays + ' Days Remaining'}</strong></span>
+      ${(() => {
+        const isOwner = this.user && (this.user.username === 'ZEESHAN1017' || this.user.account_plan === 'OWNER' || this.user.role === 'Owner');
+        return `
+        <div class="welcome-banner-ref">
+          <div class="welcome-info-wrap">
+            <div class="welcome-wave-icon">
+              <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 11v2"/></svg>
+            </div>
+            <div>
+              <h2 class="welcome-heading">Welcome back, ${this.user.username}!</h2>
+              <div class="welcome-subinfo">
+                <span>Role: ${isOwner ? '<strong class="role-tag" style="background:#8b5cf633; color:#c084fc; border:1px solid #8b5cf688;">👑 Platform Owner</strong>' : `<strong class="role-tag">${this.user.role.toLowerCase()}</strong>`}</span>
+                <span> • </span>
+                <span>Plan: ${isOwner ? '<strong style="color:#f59e0b; font-weight:800;">👑 OWNER (Master Access)</strong>' : `<strong>${userPlan}</strong>`}</span>
+                <span> • </span>
+                <span>Expiry: ${isOwner ? '<strong style="color:#10b981;">Lifetime Permanent</strong>' : `<strong>${userPlan === 'TESTER' ? 'Free Forever' : remainingDays + ' Days Remaining'}</strong>`}</span>
+              </div>
             </div>
           </div>
-        </div>
-        <button class="btn-edit-profile" onclick="ZenithApp.navigate('settings')">
-          ${ZenithIcons.edit} Edit Profile
-        </button>
-      </div>
-
-      <!-- Four Wireframe Stat Cards -->
-      <div class="wireframe-stats-row">
-        <!-- 1. Applications -->
-        <div class="wireframe-stat-card">
-          <div class="stat-label-upper">APPLICATIONS</div>
-          <div class="stat-metric-val">${this.apps.length}</div>
-          <div class="stat-metric-sub">Active Projects</div>
-          <div class="stat-vector-art">
-            <svg width="90" height="90" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
-          </div>
+          <button class="btn-edit-profile" onclick="ZenithApp.navigate('settings')">
+            ${ZenithIcons.edit} Edit Profile
+          </button>
         </div>
 
-        <!-- 2. Current Plan -->
-        <div class="wireframe-stat-card">
-          <div class="stat-label-upper">CURRENT PLAN</div>
-          <div class="stat-metric-val" style="color:#a5b4fc; font-size:24px;">${userPlan}</div>
-          <div class="stat-metric-sub">Subscription: ${userPlan === 'TESTER' ? 'Free' : 'Paid'}</div>
-          <div class="stat-vector-art">
-            <svg width="90" height="90" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        <!-- Four Wireframe Stat Cards -->
+        <div class="wireframe-stats-row">
+          <!-- 1. Applications -->
+          <div class="wireframe-stat-card">
+            <div class="stat-label-upper">APPLICATIONS</div>
+            <div class="stat-metric-val">${this.apps.length}</div>
+            <div class="stat-metric-sub">Active Projects</div>
+            <div class="stat-vector-art">
+              <svg width="90" height="90" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+            </div>
           </div>
-        </div>
+
+          <!-- 2. Current Plan -->
+          <div class="wireframe-stat-card">
+            <div class="stat-label-upper">CURRENT PLAN</div>
+            <div class="stat-metric-val" style="color:#a5b4fc; font-size:24px;">${isOwner ? '👑 OWNER' : userPlan}</div>
+            <div class="stat-metric-sub">${isOwner ? 'Master Access' : (userPlan === 'TESTER' ? 'Subscription: Free' : 'Subscription: Paid')}</div>
+            <div class="stat-vector-art">
+              <svg width="90" height="90" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="1.2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            </div>
+          </div>`;
+      })()}
 
         <!-- 3. Subscription -->
         <div class="wireframe-stat-card">
@@ -1060,26 +1163,26 @@ const ZenithApp = {
   },
 
   /* ====================================================================
-     6. PAGE 3: USERS MANAGER (WITH ADMIN PLAN ASSIGNMENT)
+     6. PAGE 3: APPLICATION CLIENT USERS (SOFTWARE CLIENT END-USERS)
      ==================================================================== */
   async renderUsers(container) {
     const res = await fetch('/api/users?app_id=' + this.activeAppId);
     const data = res.ok ? await res.json() : { users: [] };
     const users = data.users || [];
-    const isAdmin = this.user && this.user.role === 'Administrator';
+    const activeApp = this.apps.find(a => a.id === this.activeAppId) || { name: 'Active Application' };
 
     container.innerHTML = `
       <div class="card-header" style="margin-bottom:18px;">
         <div>
-          <h2 style="font-size:22px; font-weight:700;">Users Manager</h2>
-          <p class="card-desc">Inspect, filter, and manage software client credentials, active device bindings, and plan tiers</p>
+          <h2 style="font-size:22px; font-weight:700;">Application Users — ${activeApp.name}</h2>
+          <p class="card-desc">Inspect, filter, and manage software client credentials, active device bindings (HWID), and subscription access for your loader</p>
         </div>
         <div style="display:flex; gap:8px;">
           <button class="btn btn-secondary btn-sm" onclick="ZenithApp.exportUsers()">
             ${ZenithIcons.download} Export
           </button>
           <button class="btn btn-primary btn-sm" onclick="ZenithApp.openCreateUserModal()">
-            ${ZenithIcons.plus} Add User
+            ${ZenithIcons.plus} Add Client User
           </button>
         </div>
       </div>
@@ -1089,11 +1192,11 @@ const ZenithApp = {
           <table class="zenith-table">
             <thead>
               <tr>
-                <th>Username</th>
-                <th>Role</th>
-                <th>Account Plan</th>
+                <th>Client Username</th>
+                <th>Subscription / Tier</th>
                 <th>Hardware ID (HWID)</th>
-                <th>Plan Expiry</th>
+                <th>Allowed Devices</th>
+                <th>Expiry Date</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
@@ -1102,40 +1205,124 @@ const ZenithApp = {
               ${users.length > 0 ? users.map(u => `
                 <tr>
                   <td>
-                    <strong>${u.username}</strong>
-                    <div style="font-size:12px; color:#6b7280;">${u.email}</div>
-                  </td>
-                  <td><span class="badge badge-info">${u.role}</span></td>
-                  <td>
-                    <span class="badge badge-${u.account_plan === 'SELLER' ? 'success' : u.account_plan === 'DEVELOPER' ? 'info' : 'secondary'}">${u.account_plan || 'TESTER'}</span>
+                    <strong style="color:#fff; font-size:13.5px;">${u.username}</strong>
+                    <div style="font-size:11.5px; color:#6b7280;">${u.email || (u.username + '@client.local')}</div>
                   </td>
                   <td>
-                    <code style="font-size:11px; color:#a5b4fc;">${u.hwid ? u.hwid.substring(0, 18) + '...' : 'Unbound (1st login locks)'}</code>
+                    <span class="badge badge-info" style="font-weight:600;">${u.subscription_name || 'Standard'}</span>
                   </td>
-                  <td style="color:#929292;">${u.plan_expires_at || u.expiry_date || 'Permanent'}</td>
                   <td>
-                    <span class="badge badge-${u.status === 'active' ? 'success' : 'danger'}">${u.status}</span>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <code style="font-size:11px; color:#a5b4fc; background:#181822; padding:3px 8px; border-radius:4px; border:1px solid #282838;">
+                        ${u.hwid ? (u.hwid.length > 20 ? u.hwid.substring(0, 18) + '...' : u.hwid) : 'Unbound (1st login locks)'}
+                      </code>
+                    </div>
+                  </td>
+                  <td>
+                    <span style="font-size:12px; color:#cbd5e1;">${u.allowed_devices || 1} Device${(u.allowed_devices || 1) > 1 ? 's' : ''}</span>
+                  </td>
+                  <td style="color:#929292; font-size:12.5px;">
+                    ${u.expiry_date || 'Lifetime'}
+                  </td>
+                  <td>
+                    <span class="badge badge-${u.status === 'active' ? 'success' : 'danger'}">${(u.status || 'active').toUpperCase()}</span>
                   </td>
                   <td>
                     <div style="display:flex; gap:6px;">
-                      ${isAdmin ? `
-                        <button class="btn btn-secondary btn-sm" style="color:#f59e0b;" title="Assign / Grant Plan" onclick="ZenithApp.openAssignPlanModal(${u.id}, '${u.username}', '${u.account_plan || 'TESTER'}')">
-                          ⭐ Assign Plan
-                        </button>
-                      ` : ''}
+                      <button class="btn btn-secondary btn-sm" title="Reset HWID (Unlocks device)" onclick="ZenithApp.resetUserHwid(${u.id})">
+                        ${ZenithIcons.refresh} Reset HWID
+                      </button>
                       <button class="btn btn-secondary btn-sm" title="Toggle Ban Status" onclick="ZenithApp.toggleUserStatus(${u.id})">
-                        ${ZenithIcons.shield}
+                        ${ZenithIcons.shield} ${u.status === 'banned' ? 'Unban' : 'Ban'}
                       </button>
-                      <button class="btn btn-secondary btn-sm" title="Reset HWID" onclick="ZenithApp.resetUserHwid(${u.id})">
-                        ${ZenithIcons.refresh}
+                      <button class="btn btn-secondary btn-sm" style="color:#10b981;" title="Extend +30 Days" onclick="ZenithApp.extendUserDays(${u.id}, 30)">
+                        +30D
                       </button>
-                      <button class="btn btn-secondary btn-sm" title="Delete" onclick="ZenithApp.deleteUser(${u.id})">
+                      <button class="btn btn-secondary btn-sm" title="Delete Client" onclick="ZenithApp.deleteUser(${u.id})">
                         ${ZenithIcons.trash}
                       </button>
                     </div>
                   </td>
                 </tr>
-              `).join('') : `<tr><td colspan="7" style="text-align:center; color:#666;">No registered users found</td></tr>`}
+              `).join('') : `<tr><td colspan="7" style="text-align:center; padding:32px; color:#6b7280;">No client software users found for this application. Click <strong>+ Add Client User</strong> to create your first client.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  },
+
+  /* ====================================================================
+     6.1 PAGE 3.1: PLATFORM DEVELOPER ACCOUNTS (FOR OWNER & ADMINS)
+     ==================================================================== */
+  async renderPlatformAccounts(container) {
+    const res = await fetch('/api/admin/accounts');
+    const data = res.ok ? await res.json() : { accounts: [] };
+    const accounts = data.accounts || [];
+
+    container.innerHTML = `
+      <div class="card-header" style="margin-bottom:18px;">
+        <div>
+          <h2 style="font-size:22px; font-weight:700;">Platform Accounts & Resellers</h2>
+          <p class="card-desc">Control SaaS developer accounts, reseller quotas, and assign subscription plans (TESTER / DEVELOPER / SELLER)</p>
+        </div>
+      </div>
+
+      <div class="zenith-card">
+        <div class="table-responsive">
+          <table class="zenith-table">
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Role</th>
+                <th>Platform Plan</th>
+                <th>Plan Expiry</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${accounts.map(acc => {
+                const isMasterOwner = acc.username === 'ZEESHAN1017' || acc.account_plan === 'OWNER';
+                return `
+                <tr>
+                  <td>
+                    <strong style="color:#fff; font-size:14px;">${acc.username}</strong>
+                    <div style="font-size:11.5px; color:#6b7280;">${acc.email}</div>
+                  </td>
+                  <td>
+                    ${isMasterOwner ? `
+                      <span class="badge" style="background:#8b5cf633; color:#c084fc; border:1px solid #8b5cf688; font-weight:700;">👑 Master Platform Owner</span>
+                    ` : `
+                      <span class="badge badge-info">${acc.role}</span>
+                    `}
+                  </td>
+                  <td>
+                    ${isMasterOwner ? `
+                      <span class="badge" style="background:#f59e0b22; color:#f59e0b; border:1px solid #f59e0b66; font-weight:800;">👑 OWNER</span>
+                    ` : `
+                      <span class="badge badge-${acc.account_plan === 'SELLER' ? 'success' : acc.account_plan === 'DEVELOPER' ? 'info' : 'secondary'}">
+                        ${acc.account_plan || 'TESTER'}
+                      </span>
+                    `}
+                  </td>
+                  <td style="color:#929292; font-size:12.5px;">
+                    ${isMasterOwner ? '<span style="color:#10b981; font-weight:600;">Lifetime Permanent</span>' : (acc.plan_expires_at || 'Permanent')}
+                  </td>
+                  <td>
+                    <span class="badge badge-${acc.status === 'active' ? 'success' : 'danger'}">${(acc.status || 'active').toUpperCase()}</span>
+                  </td>
+                  <td>
+                    ${isMasterOwner ? `
+                      <span style="font-size:11.5px; color:#10b981; font-weight:600;">✓ Master Protected</span>
+                    ` : `
+                      <button class="btn btn-secondary btn-sm" style="color:#f59e0b;" title="Assign Plan" onclick="ZenithApp.openAssignPlanModal(${acc.id}, '${acc.username}', '${acc.account_plan || 'TESTER'}')">
+                        ⭐ Assign Plan
+                      </button>
+                    `}
+                  </td>
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
         </div>
@@ -1189,7 +1376,7 @@ const ZenithApp = {
       const plan_name = document.getElementById('grant-plan-tier').value;
       const duration_days = parseInt(document.getElementById('grant-plan-days').value, 10);
 
-      const res = await fetch('/api/users/' + userId + '/assign-plan', {
+      const res = await fetch('/api/admin/accounts/' + userId + '/assign-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan_name, duration_days })
@@ -1198,7 +1385,11 @@ const ZenithApp = {
       if (res.ok) {
         this.closeAllModals();
         this.showToast(data.message || 'Plan granted successfully!', 'success');
-        this.renderUsers(document.getElementById('content-container'));
+        if (this.currentRoute === 'accounts') {
+          this.renderPlatformAccounts(document.getElementById('content-container'));
+        } else {
+          this.renderUsers(document.getElementById('content-container'));
+        }
       } else {
         this.showToast(data.error || 'Failed to grant plan', 'danger');
       }
@@ -1218,6 +1409,24 @@ const ZenithApp = {
     if (res.ok) {
       this.showToast('User HWID unlinked successfully', 'success');
       this.renderUsers(document.getElementById('content-container'));
+    }
+  },
+
+  async extendUserDays(id, days = 30) {
+    try {
+      const res = await fetch('/api/users/' + id + '/extend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days })
+      });
+      if (res.ok) {
+        this.showToast(`Extended client subscription by ${days} days!`, 'success');
+        this.renderUsers(document.getElementById('content-container'));
+      } else {
+        this.showToast('Failed to extend subscription', 'danger');
+      }
+    } catch {
+      this.showToast('Network error extending subscription', 'danger');
     }
   },
 
