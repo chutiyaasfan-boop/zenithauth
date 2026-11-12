@@ -409,6 +409,75 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    // POST /api/auth/google-login
+    if (req.method === 'POST' && pathname === '/api/auth/google-login') {
+      const { email, name } = await parseJsonBody(req);
+      const targetEmail = (email || '').trim().toLowerCase();
+      if (!targetEmail) {
+        return sendJson(res, 400, { error: 'Valid Gmail / Google account email is required' });
+      }
+
+      // Check if user is master owner ZEESHAN1017 (by email zeeshan1710@fam or zeeshan1710@gmail.com or zeeshan)
+      let user = db.prepare('SELECT * FROM users WHERE lower(email) = ? OR lower(username) = ?').get(targetEmail, targetEmail);
+      if (!user && (targetEmail === 'zeeshan1710@fam' || targetEmail === 'zeeshan1710@gmail.com' || targetEmail.includes('zeeshan1710'))) {
+        user = db.prepare('SELECT * FROM users WHERE username = "ZEESHAN1017"').get();
+      }
+
+      if (!user) {
+        // Register new Google account user automatically
+        const baseName = targetEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_');
+        let newUsername = baseName;
+        let counter = 1;
+        while (db.prepare('SELECT id FROM users WHERE username = ?').get(newUsername)) {
+          newUsername = `${baseName}_${counter++}`;
+        }
+        const dummyHash = hashPassword(crypto.randomBytes(24).toString('hex'));
+        const ownerId = generateOwnerId(targetEmail);
+        const info = db.prepare(`
+          INSERT INTO users (username, email, password_hash, role, owner_id, account_plan, billing_cycle, app_id, plan_id, expiry_date, status)
+          VALUES (?, ?, ?, 'Developer', ?, 'TESTER', 'monthly', 1, 1, date('now', '+30 days'), 'active')
+        `).run(newUsername, targetEmail, dummyHash, ownerId);
+        user = db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid);
+      }
+
+      if (user.status === 'banned') {
+        return sendJson(res, 403, { error: 'Your account has been suspended by an administrator' });
+      }
+
+      const durationMs = 30 * 86400000;
+      const exp = Date.now() + durationMs;
+      const sessionToken = signSessionToken({ userId: user.id, username: user.username, role: user.role, exp });
+
+      db.prepare(`
+        INSERT INTO sessions (user_id, username, session_token, ip_address, user_agent, device_info)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(user.id, user.username, sessionToken, clientIp, req.headers['user-agent'] || 'Browser Client', 'Google OAuth 2.0 Web');
+
+      db.prepare(`UPDATE users SET last_login = datetime('now'), ip_address = ? WHERE id = ?`).run(clientIp, user.id);
+      logAudit(user.id, user.username, 'GOOGLE_AUTH_LOGIN', clientIp, req.headers['user-agent'], `Logged in via Google (${targetEmail})`);
+
+      const cookieOpts = `zenith_session=${sessionToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(durationMs / 1000)}`;
+      res.setHeader('Set-Cookie', cookieOpts);
+
+      return sendJson(res, 200, {
+        success: true,
+        token: sessionToken,
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+          owner_id: user.owner_id || generateOwnerId(user.email),
+          account_plan: user.account_plan || 'TESTER',
+          billing_cycle: user.billing_cycle || 'monthly',
+          app_id: user.app_id,
+          plan_id: user.plan_id,
+          expiry_date: user.expiry_date,
+          status: user.status
+        }
+      });
+    }
+
     // POST /api/auth/logout
     if (req.method === 'POST' && pathname === '/api/auth/logout') {
       const user = getAuthUser(req);
@@ -801,16 +870,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     /* ====================================================================
-       4. USER MANAGEMENT ROUTES
+       4. APPLICATION CLIENT USERS (Software Clients / End-Users)
        ==================================================================== */
 
-    // GET /api/users
+    // GET /api/users (Application Client Users for active app)
     if (req.method === 'GET' && pathname === '/api/users') {
       const user = getAuthUser(req);
       if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
 
       const search = parsedUrl.searchParams.get('search') || '';
-      const role = parsedUrl.searchParams.get('role') || '';
       const status = parsedUrl.searchParams.get('status') || '';
       const appId = parseInt(parsedUrl.searchParams.get('app_id') || user.app_id || '1', 10);
       const page = Math.max(1, parseInt(parsedUrl.searchParams.get('page') || '1', 10));
@@ -821,24 +889,21 @@ const server = http.createServer(async (req, res) => {
       const params = [appId];
 
       if (search) {
-        where += ' AND (u.username LIKE ? OR u.email LIKE ?)';
-        params.push(`%${search}%`, `%${search}%`);
-      }
-      if (role) {
-        where += ' AND u.role = ?';
-        params.push(role);
+        where += ' AND (u.username LIKE ? OR u.email LIKE ? OR u.hwid LIKE ?)';
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
       }
       if (status) {
         where += ' AND u.status = ?';
         params.push(status);
       }
 
-      const total = db.prepare(`SELECT count(*) as c FROM users u ${where}`).get(...params).c;
+      const total = db.prepare(`SELECT count(*) as c FROM app_users u ${where}`).get(...params).c;
 
       const users = db.prepare(`
-        SELECT u.id, u.username, u.email, u.role, u.owner_id, u.account_plan, u.billing_cycle, u.plan_expires_at, u.allowed_devices, u.app_id, u.plan_id, u.expiry_date, u.status, u.hwid, u.created_at, p.name as plan_name
-        FROM users u
-        LEFT JOIN subscription_plans p ON u.plan_id = p.id
+        SELECT u.id, u.app_id, u.username, u.email, u.subscription_name, u.plan_id, 
+               u.expiry_date, u.hwid, u.hwid_lock, u.allowed_devices, u.ip_address, 
+               u.last_login, u.status, u.created_at, u.subscription_name as plan_name
+        FROM app_users u
         ${where}
         ORDER BY u.id DESC
         LIMIT ? OFFSET ?
@@ -847,18 +912,18 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { users, total, page, limit });
     }
 
-    // POST /api/users
+    // POST /api/users (Create Application Client User)
     if (req.method === 'POST' && pathname === '/api/users') {
       const user = getAuthUser(req);
       if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
 
       const body = await parseJsonBody(req);
       const username = body.username ? body.username.trim() : '';
-      const password = body.password || 'zenithClient123!';
-      const email = body.email ? body.email.trim() : (username + '@zenith.local');
-      const role = body.role || 'Client';
-      const assignedApp = body.app_id || user.app_id || 1;
-      const assignedPlan = body.plan_id || body.subscription || 1;
+      const password = body.password || 'ClientPass123!';
+      const email = body.email ? body.email.trim() : (username + '@client.local');
+      const assignedApp = parseInt(body.app_id || user.app_id || '1', 10);
+      const subName = body.subscription_name || body.subscription || 'default';
+      const planId = parseInt(body.plan_id || '1', 10);
       const expiry = body.expiry_date || body.expiry || new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
       const hwidLock = body.hwid_lock !== undefined ? (body.hwid_lock ? 1 : 0) : 1;
       const allowedDevices = parseInt(body.allowed_devices || body.multi_hwid || '1', 10);
@@ -868,19 +933,18 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { error: 'Username is required' });
       }
 
-      // Check unique
-      const existing = db.prepare('SELECT id FROM users WHERE username = ?').get(username);
+      // Check unique for this app
+      const existing = db.prepare('SELECT id FROM app_users WHERE app_id = ? AND username = ?').get(assignedApp, username);
       if (existing) {
-        return sendJson(res, 400, { error: 'Username already exists' });
+        return sendJson(res, 400, { error: 'Username already exists for this application' });
       }
 
       const passwordHash = hashPassword(password);
-      const ownerId = generateOwnerId(email);
 
       const info = db.prepare(`
-        INSERT INTO users (username, email, password_hash, role, owner_id, account_plan, app_id, plan_id, expiry_date, status, hwid, allowed_devices)
-        VALUES (?, ?, ?, ?, ?, 'TESTER', ?, ?, ?, 'active', '', ?)
-      `).run(username, email, passwordHash, role, ownerId, assignedApp, assignedPlan, expiry, allowedDevices);
+        INSERT INTO app_users (app_id, username, password_hash, email, subscription_name, plan_id, expiry_date, hwid, hwid_lock, allowed_devices, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'active')
+      `).run(assignedApp, username, passwordHash, email, subName, planId, expiry, hwidLock, allowedDevices);
 
       const newUserId = info.lastInsertRowid;
 
@@ -893,18 +957,132 @@ const server = http.createServer(async (req, res) => {
         `).run(assignedApp, newUserId, clientToken, username);
       }
 
-      logAudit(user.id, user.username, 'USER_CREATED', clientIp, req.headers['user-agent'], `Created user ${username} (Allowed devices: ${allowedDevices})`);
-      return sendJson(res, 201, { success: true, id: newUserId, token: clientToken, message: 'User created successfully' });
+      logAudit(user.id, user.username, 'CLIENT_USER_CREATED', clientIp, req.headers['user-agent'], `Created client user ${username} in app #${assignedApp}`);
+      return sendJson(res, 201, { success: true, id: newUserId, token: clientToken, message: 'Client user created successfully' });
     }
 
-    // POST /api/users/:id/assign-plan (Admin Plan Assignment & Duration)
-    if (req.method === 'POST' && pathname.match(/^\/api\/users\/\d+\/assign-plan$/)) {
+    // PUT /api/users/:id
+    if (req.method === 'PUT' && pathname.startsWith('/api/users/')) {
       const user = getAuthUser(req);
-      if (!user || user.role !== 'Administrator') {
-        return sendJson(res, 403, { error: 'Only Administrators can assign plans to users' });
-      }
+      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
 
       const id = parseInt(pathname.split('/')[3], 10);
+      const { username, email, subscription_name, expiry_date, status, hwid, password } = await parseJsonBody(req);
+
+      if (password) {
+        const pHash = hashPassword(password);
+        db.prepare('UPDATE app_users SET password_hash = ? WHERE id = ?').run(pHash, id);
+      }
+
+      db.prepare(`
+        UPDATE app_users 
+        SET username = coalesce(?, username),
+            email = coalesce(?, email),
+            subscription_name = coalesce(?, subscription_name),
+            expiry_date = coalesce(?, expiry_date),
+            status = coalesce(?, status),
+            hwid = coalesce(?, hwid)
+        WHERE id = ?
+      `).run(username, email, subscription_name, expiry_date, status, hwid, id);
+
+      logAudit(user.id, user.username, 'CLIENT_USER_UPDATED', clientIp, req.headers['user-agent'], `Updated client user ID ${id}`);
+      return sendJson(res, 200, { success: true, message: 'Client user updated successfully' });
+    }
+
+    // DELETE /api/users/:id
+    if (req.method === 'DELETE' && pathname.startsWith('/api/users/')) {
+      const user = getAuthUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+      const id = parseInt(pathname.split('/')[3], 10);
+      db.prepare('DELETE FROM app_users WHERE id = ?').run(id);
+      logAudit(user.id, user.username, 'CLIENT_USER_DELETED', clientIp, req.headers['user-agent'], `Deleted client user ID ${id}`);
+      return sendJson(res, 200, { success: true, message: 'Client user deleted successfully' });
+    }
+
+    // POST /api/users/:id/ban
+    if (req.method === 'POST' && pathname.match(/^\/api\/users\/\d+\/ban$/)) {
+      const user = getAuthUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+      const id = parseInt(pathname.split('/')[3], 10);
+      const target = db.prepare('SELECT status, username FROM app_users WHERE id = ?').get(id);
+      if (!target) return sendJson(res, 404, { error: 'User not found' });
+
+      const newStatus = target.status === 'banned' ? 'active' : 'banned';
+      db.prepare('UPDATE app_users SET status = ? WHERE id = ?').run(newStatus, id);
+
+      logAudit(user.id, user.username, newStatus === 'banned' ? 'USER_BANNED' : 'USER_UNBANNED', clientIp, req.headers['user-agent'], `Changed status of ${target.username} to ${newStatus}`);
+      return sendJson(res, 200, { success: true, status: newStatus });
+    }
+
+    // POST /api/users/:id/reset-hwid
+    if (req.method === 'POST' && pathname.match(/^\/api\/users\/\d+\/reset-hwid$/)) {
+      const user = getAuthUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+      const id = parseInt(pathname.split('/')[3], 10);
+      db.prepare('UPDATE app_users SET hwid = "" WHERE id = ?').run(id);
+      logAudit(user.id, user.username, 'HWID_RESET', clientIp, req.headers['user-agent'], `Reset HWID for client user ID ${id}`);
+      return sendJson(res, 200, { success: true, message: 'Hardware ID has been reset' });
+    }
+
+    // POST /api/users/:id/extend
+    if (req.method === 'POST' && pathname.match(/^\/api\/users\/\d+\/extend$/)) {
+      const user = getAuthUser(req);
+      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
+
+      const id = parseInt(pathname.split('/')[3], 10);
+      const { days } = await parseJsonBody(req);
+      const addDays = parseInt(days || '30', 10);
+
+      const target = db.prepare('SELECT expiry_date FROM app_users WHERE id = ?').get(id);
+      if (!target) return sendJson(res, 404, { error: 'User not found' });
+
+      const baseDate = target.expiry_date && new Date(target.expiry_date) > new Date() ? new Date(target.expiry_date) : new Date();
+      const newExpiry = new Date(baseDate.getTime() + addDays * 86400000).toISOString().split('T')[0];
+
+      db.prepare(`UPDATE app_users SET expiry_date = ?, status = 'active' WHERE id = ?`).run(newExpiry, id);
+      logAudit(user.id, user.username, 'SUBSCRIPTION_EXTENDED', clientIp, req.headers['user-agent'], `Extended client ID ${id} by ${addDays} days`);
+      return sendJson(res, 200, { success: true, expiry_date: newExpiry });
+    }
+
+    /* ====================================================================
+       4.1 DASHBOARD DEVELOPER ACCOUNTS (Platform Plans & Resellers)
+       ==================================================================== */
+
+    // GET /api/admin/accounts (Only accessible to Master Owner and Admins)
+    if (req.method === 'GET' && pathname === '/api/admin/accounts') {
+      const user = getAuthUser(req);
+      if (!user || (user.role !== 'Owner' && user.role !== 'Administrator')) {
+        return sendJson(res, 403, { error: 'Access denied' });
+      }
+
+      // Fetch dashboard accounts from users table
+      const accounts = db.prepare(`
+        SELECT id, username, email, role, owner_id, account_plan, billing_cycle, plan_expires_at, status, created_at
+        FROM users
+        ORDER BY id ASC
+      `).all();
+
+      return sendJson(res, 200, { accounts });
+    }
+
+    // POST /api/admin/accounts/:id/assign-plan (or /api/users/:id/assign-plan)
+    if (req.method === 'POST' && (pathname.match(/^\/api\/admin\/accounts\/\d+\/assign-plan$/) || pathname.match(/^\/api\/users\/\d+\/assign-plan$/))) {
+      const user = getAuthUser(req);
+      if (!user || (user.role !== 'Owner' && user.role !== 'Administrator')) {
+        return sendJson(res, 403, { error: 'Only Administrators can assign plans to accounts' });
+      }
+
+      const id = parseInt(pathname.split('/')[pathname.includes('accounts') ? 4 : 3], 10);
+      const targetUser = db.prepare('SELECT username, role, account_plan FROM users WHERE id = ?').get(id);
+      if (!targetUser) return sendJson(res, 404, { error: 'Account not found' });
+
+      if (targetUser.username === 'ZEESHAN1017' || targetUser.account_plan === 'OWNER') {
+        return sendJson(res, 400, { error: 'Master Platform Owner plan cannot be modified' });
+      }
+
       const body = await parseJsonBody(req);
       const planName = body.plan_name || body.plan || 'TESTER';
       const durationDays = body.duration_days || body.days || 30;
@@ -921,98 +1099,9 @@ const server = http.createServer(async (req, res) => {
       `).run(targetPlan, expDate, id);
 
       logAccount(id, 'PLAN_ADMIN_ASSIGNED', clientIp, `Administrator ${user.username} granted ${targetPlan} plan (${days} days)`);
-      logAudit(user.id, user.username, 'ADMIN_PLAN_GRANT', clientIp, req.headers['user-agent'], `Granted ${targetPlan} (${days} days) to user ID ${id}`);
+      logAudit(user.id, user.username, 'ADMIN_PLAN_GRANT', clientIp, req.headers['user-agent'], `Granted ${targetPlan} (${days} days) to account ${targetUser.username}`);
 
       return sendJson(res, 200, { success: true, message: `Assigned ${targetPlan} plan successfully!`, plan: targetPlan, expires_at: expDate || 'Lifetime' });
-    }
-
-    // PUT /api/users/:id
-    if (req.method === 'PUT' && pathname.startsWith('/api/users/')) {
-      const user = getAuthUser(req);
-      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
-
-      const id = parseInt(pathname.split('/')[3], 10);
-      const { username, email, role, plan_id, expiry_date, status, hwid, password } = await parseJsonBody(req);
-
-      if (password) {
-        const pHash = hashPassword(password);
-        db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(pHash, id);
-      }
-
-      db.prepare(`
-        UPDATE users 
-        SET username = coalesce(?, username),
-            email = coalesce(?, email),
-            role = coalesce(?, role),
-            plan_id = coalesce(?, plan_id),
-            expiry_date = coalesce(?, expiry_date),
-            status = coalesce(?, status),
-            hwid = coalesce(?, hwid)
-        WHERE id = ?
-      `).run(username, email, role, plan_id, expiry_date, status, hwid, id);
-
-      logAudit(user.id, user.username, 'USER_UPDATED', clientIp, req.headers['user-agent'], `Updated user ID ${id}`);
-      return sendJson(res, 200, { success: true, message: 'User updated successfully' });
-    }
-
-    // DELETE /api/users/:id
-    if (req.method === 'DELETE' && pathname.startsWith('/api/users/')) {
-      const user = getAuthUser(req);
-      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
-
-      const id = parseInt(pathname.split('/')[3], 10);
-      if (id === 1) return sendJson(res, 400, { error: 'Cannot delete primary root administrator' });
-
-      db.prepare('DELETE FROM users WHERE id = ?').run(id);
-      logAudit(user.id, user.username, 'USER_DELETED', clientIp, req.headers['user-agent'], `Deleted user ID ${id}`);
-      return sendJson(res, 200, { success: true, message: 'User deleted successfully' });
-    }
-
-    // POST /api/users/:id/ban
-    if (req.method === 'POST' && pathname.match(/^\/api\/users\/\d+\/ban$/)) {
-      const user = getAuthUser(req);
-      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
-
-      const id = parseInt(pathname.split('/')[3], 10);
-      const target = db.prepare('SELECT status, username FROM users WHERE id = ?').get(id);
-      if (!target) return sendJson(res, 404, { error: 'User not found' });
-
-      const newStatus = target.status === 'banned' ? 'active' : 'banned';
-      db.prepare('UPDATE users SET status = ? WHERE id = ?').run(newStatus, id);
-
-      logAudit(user.id, user.username, newStatus === 'banned' ? 'USER_BANNED' : 'USER_UNBANNED', clientIp, req.headers['user-agent'], `Changed status of ${target.username} to ${newStatus}`);
-      return sendJson(res, 200, { success: true, status: newStatus });
-    }
-
-    // POST /api/users/:id/reset-hwid
-    if (req.method === 'POST' && pathname.match(/^\/api\/users\/\d+\/reset-hwid$/)) {
-      const user = getAuthUser(req);
-      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
-
-      const id = parseInt(pathname.split('/')[3], 10);
-      db.prepare('UPDATE users SET hwid = "" WHERE id = ?').run(id);
-      logAudit(user.id, user.username, 'HWID_RESET', clientIp, req.headers['user-agent'], `Reset HWID for user ID ${id}`);
-      return sendJson(res, 200, { success: true, message: 'Hardware ID has been reset' });
-    }
-
-    // POST /api/users/:id/extend
-    if (req.method === 'POST' && pathname.match(/^\/api\/users\/\d+\/extend$/)) {
-      const user = getAuthUser(req);
-      if (!user) return sendJson(res, 401, { error: 'Unauthorized' });
-
-      const id = parseInt(pathname.split('/')[3], 10);
-      const { days } = await parseJsonBody(req);
-      const addDays = parseInt(days || '30', 10);
-
-      const target = db.prepare('SELECT expiry_date FROM users WHERE id = ?').get(id);
-      if (!target) return sendJson(res, 404, { error: 'User not found' });
-
-      const baseDate = target.expiry_date && new Date(target.expiry_date) > new Date() ? new Date(target.expiry_date) : new Date();
-      const newExpiry = new Date(baseDate.getTime() + addDays * 86400000).toISOString().split('T')[0];
-
-      db.prepare(`UPDATE users SET expiry_date = ?, status = 'active' WHERE id = ?`).run(newExpiry, id);
-      logAudit(user.id, user.username, 'SUBSCRIPTION_EXTENDED', clientIp, req.headers['user-agent'], `Extended user ID ${id} by ${addDays} days`);
-      return sendJson(res, 200, { success: true, expiry_date: newExpiry });
     }
 
     // GET /api/users/export
@@ -2690,41 +2779,42 @@ const server = http.createServer(async (req, res) => {
     // POST /api/v1/client/login (Client Software User Authentication)
     if (req.method === 'POST' && pathname === '/api/v1/client/login') {
       const { username, password, hwid, app_id } = await parseJsonBody(req);
-      const targetAppId = app_id || 1;
+      const targetAppId = parseInt(app_id || 1, 10);
 
-      const user = db.prepare('SELECT * FROM users WHERE username = ? AND app_id = ?').get(username, targetAppId);
+      // Authenticate against app_users table
+      const user = db.prepare('SELECT * FROM app_users WHERE username = ? AND app_id = ?').get(username, targetAppId);
       if (!user || !verifyPassword(password, user.password_hash)) {
-        return sendJson(res, 401, { status: false, message: 'Invalid username or password' });
+        return sendJson(res, 401, { status: false, message: 'Invalid client username or password' });
       }
 
       if (user.status === 'banned') {
-        return sendJson(res, 403, { status: false, message: 'Account is suspended' });
+        return sendJson(res, 403, { status: false, message: 'Your client license has been banned by an administrator' });
       }
 
       if (user.expiry_date && new Date(user.expiry_date) < new Date()) {
-        return sendJson(res, 403, { status: false, message: 'User license subscription has expired' });
+        return sendJson(res, 403, { status: false, message: 'Client subscription has expired' });
       }
 
       // Check Application HWID Lock policy
       const app = db.prepare('SELECT hwid_lock FROM applications WHERE id = ?').get(targetAppId);
-      if (app && app.hwid_lock) {
+      if (app && app.hwid_lock && user.hwid_lock) {
         if (!user.hwid) {
           // Bind user to this HWID upon first login
-          db.prepare('UPDATE users SET hwid = ? WHERE id = ?').run(hwid || 'GENERIC-HWID', user.id);
+          db.prepare('UPDATE app_users SET hwid = ?, ip_address = ?, last_login = datetime(\'now\') WHERE id = ?').run(hwid || 'GENERIC-HWID', clientIp, user.id);
         } else if (hwid && user.hwid !== hwid) {
           logAudit(user.id, user.username, 'HWID_MISMATCH', clientIp, req.headers['user-agent'], `Expected ${user.hwid}, got ${hwid}`);
-          return sendJson(res, 403, { status: false, message: 'Hardware ID mismatch. Contact support for HWID reset.' });
+          return sendJson(res, 403, { status: false, message: 'Hardware ID mismatch. Contact your software administrator to reset HWID.' });
         }
+      } else {
+        db.prepare('UPDATE app_users SET ip_address = ?, last_login = datetime(\'now\') WHERE id = ?').run(clientIp, user.id);
       }
 
-      // Create client token
+      // Create client session token
       const clientToken = 'zat_clt_' + crypto.randomBytes(18).toString('hex');
       db.prepare(`
         INSERT INTO tokens (app_id, user_id, token_val, type, assigned_to, expires_at, status)
         VALUES (?, ?, ?, 'Client', ?, datetime('now', '+1 day'), 'active')
       `).run(targetAppId, user.id, clientToken, user.username);
-
-      const plan = db.prepare('SELECT name, level FROM subscription_plans WHERE id = ?').get(user.plan_id) || { name: 'Standard', level: 1 };
 
       return sendJson(res, 200, {
         status: true,
@@ -2732,10 +2822,9 @@ const server = http.createServer(async (req, res) => {
         token: clientToken,
         user: {
           username: user.username,
-          role: user.role,
-          subscription: plan.name,
-          level: plan.level,
-          expiry: user.expiry_date
+          subscription: user.subscription_name || 'default',
+          expiry: user.expiry_date,
+          hwid: user.hwid || hwid
         }
       });
     }
@@ -2743,10 +2832,10 @@ const server = http.createServer(async (req, res) => {
     // POST /api/v1/client/register (Client Register with License Key)
     if (req.method === 'POST' && pathname === '/api/v1/client/register') {
       const { username, email, password, license_key, hwid, app_id } = await parseJsonBody(req);
-      const targetAppId = app_id || 1;
+      const targetAppId = parseInt(app_id || 1, 10);
 
-      if (!username || !email || !password || !license_key) {
-        return sendJson(res, 400, { status: false, message: 'Username, email, password, and license key are required' });
+      if (!username || !password || !license_key) {
+        return sendJson(res, 400, { status: false, message: 'Username, password, and license key are required' });
       }
 
       // Check license key
@@ -2761,26 +2850,27 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 403, { status: false, message: 'License key has reached maximum activation limit' });
       }
 
-      // Check unique user
-      const existing = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username, email);
+      // Check unique app user
+      const existing = db.prepare('SELECT id FROM app_users WHERE app_id = ? AND username = ?').get(targetAppId, username);
       if (existing) {
-        return sendJson(res, 400, { status: false, message: 'Username or email is already taken' });
+        return sendJson(res, 400, { status: false, message: 'Username is already taken in this application' });
       }
 
-      const expiry = new Date(Date.now() + lic.duration_days * 86400000).toISOString().split('T')[0];
+      const expiry = new Date(Date.now() + (lic.duration_days || 30) * 86400000).toISOString().split('T')[0];
       const pHash = hashPassword(password);
+      const userEmail = email ? email.trim() : (username + '@client.local');
 
       const uInfo = db.prepare(`
-        INSERT INTO users (username, email, password_hash, role, app_id, plan_id, expiry_date, status, hwid)
-        VALUES (?, ?, ?, 'Seller', ?, ?, ?, 'active', ?)
-      `).run(username, email, pHash, targetAppId, lic.plan_id, expiry, hwid || '');
+        INSERT INTO app_users (app_id, username, email, password_hash, subscription_name, plan_id, expiry_date, hwid, hwid_lock, status)
+        VALUES (?, ?, ?, ?, 'Standard', ?, ?, ?, 1, 'active')
+      `).run(targetAppId, username, userEmail, pHash, lic.plan_id, expiry, hwid || '');
 
       // Mark license activated
       db.prepare(`
         UPDATE licenses 
-        SET status = 'active', activations_count = activations_count + 1, used_by = ?, hwid_val = ?, expiry_date = ?
+        SET status = 'active', activations_count = activations_count + 1, used_by = ?, bound_user = ?, hwid_val = ?, expiry_date = ?
         WHERE id = ?
-      `).run(username, hwid || '', expiry, lic.id);
+      `).run(username, username, hwid || '', expiry, lic.id);
 
       logAudit(uInfo.lastInsertRowid, username, 'CLIENT_REGISTRATION', clientIp, req.headers['user-agent'], `Registered with key ${lic.license_key}`);
 
