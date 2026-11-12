@@ -445,6 +445,27 @@ function initDatabase() {
       created_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    -- 26. Application Client End-Users (Software Clients / Loaders)
+    CREATE TABLE IF NOT EXISTS app_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      app_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      email TEXT DEFAULT '',
+      subscription_name TEXT DEFAULT 'default',
+      plan_id INTEGER DEFAULT 1,
+      expiry_date TEXT,
+      hwid TEXT DEFAULT '',
+      hwid_lock INTEGER DEFAULT 1,
+      allowed_devices INTEGER DEFAULT 1,
+      ip_address TEXT DEFAULT '127.0.0.1',
+      last_login TEXT,
+      status TEXT DEFAULT 'active', -- active, banned
+      created_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(app_id, username),
+      FOREIGN KEY (app_id) REFERENCES applications(id) ON DELETE CASCADE
+    );
   `);
 
   // Run schema migrations for existing databases
@@ -472,23 +493,43 @@ function seedInitialData() {
   const zeeshanOwnerId = generateOwnerId('zeeshan1710@fam');
   const zeeshanHash = hashPassword('ZEESHAN@0517');
 
-  // Seed / Upsert ZEESHAN1017 Master Administrator
+  // Seed / Upsert ZEESHAN1017 Master Platform Owner (Permanent Master Access)
   const zeeshan = db.prepare('SELECT id FROM users WHERE username = ?').get('ZEESHAN1017');
   if (!zeeshan) {
     db.prepare(`
-      INSERT INTO users (username, email, password_hash, role, owner_id, account_plan, app_id, plan_id, expiry_date, status, hwid)
-      VALUES ('ZEESHAN1017', 'zeeshan1710@fam', ?, 'Administrator', ?, 'SELLER', 1, 3, '2036-12-31', 'active', 'HWID-ZEESHAN-ROOT-SUPERADMIN')
+      INSERT INTO users (username, email, password_hash, role, owner_id, account_plan, billing_cycle, plan_expires_at, app_id, plan_id, expiry_date, status, hwid)
+      VALUES ('ZEESHAN1017', 'zeeshan1710@fam', ?, 'Owner', ?, 'OWNER', 'lifetime', '2099-12-31', 1, 3, '2099-12-31', 'active', 'HWID-ZEESHAN-ROOT-SUPERADMIN')
     `).run(zeeshanHash, zeeshanOwnerId);
   } else {
     db.prepare(`
       UPDATE users 
       SET password_hash = ?, 
-          role = 'Administrator', 
-          account_plan = 'SELLER', 
+          role = 'Owner', 
+          account_plan = 'OWNER', 
+          billing_cycle = 'lifetime',
+          plan_expires_at = '2099-12-31',
           owner_id = ?
       WHERE username = 'ZEESHAN1017'
     `).run(zeeshanHash, zeeshanOwnerId);
   }
+
+  // Seed sample client users in app_users for active application if empty
+  const appUsersCount = db.prepare('SELECT count(*) as count FROM app_users').get().count;
+  if (appUsersCount === 0) {
+    const dummyPass = hashPassword('ClientPassword1!');
+    db.prepare(`
+      INSERT INTO app_users (app_id, username, password_hash, email, subscription_name, expiry_date, hwid, hwid_lock, allowed_devices, status)
+      VALUES 
+        (1, 'ghost_sniper', ?, 'ghost@client.local', 'Pro Quarterly', '2026-12-30', 'HWID-88FA-991A-443B', 1, 1, 'active'),
+        (1, 'shadow_aim', ?, 'shadow@client.local', 'Standard Monthly', '2026-11-28', 'HWID-1102-CC41-9921', 1, 2, 'active'),
+        (1, 'apex_client', ?, 'apex@client.local', 'Enterprise Lifetime', '2099-12-31', 'HWID-3341-AA88-1099', 1, 3, 'active')
+    `).run(dummyPass, dummyPass, dummyPass);
+  }
+
+  // Ensure ZEESHAN1017 and admin are never in app_users
+  try {
+    db.prepare("DELETE FROM app_users WHERE username IN ('ZEESHAN1017', 'admin', 'vortex_seller')").run();
+  } catch {}
 
   if (userCount > 0) {
     db.prepare(`
