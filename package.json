@@ -1,0 +1,28 @@
+{
+  "name": "zenith-auth",
+  "version": "1.0.0",
+  "description": "Zenith Auth - Complete Authentication & License Management Platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node server.js --test"
+  },
+  "keywords": [
+    "auth",
+    "license-manager",
+    "saas",
+    "hwid",
+    "token",
+    "security",
+    "zenith"
+  ],
+  "author": "Zenith Auth Team",
+  "license": "Commercial",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "pg": "^8.23.1"
+  }
+}
